@@ -3,6 +3,7 @@ package tasks
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/jzelinskie/geddit"
 	"github.com/placy2/telegramBot/dao"
@@ -22,20 +23,24 @@ func PushReddit() {
 		return
 	}
 
-	subOpts := geddit.ListingOptions{
-		Limit: 15,
-	}
+	// Gets new posts in various gaming subreddits and look for the word hype, if found send all "hype posts" on Telegram
+	subreddits := []string{"VALORANT", "GlobalOffensive", "RocketLeague", "SuperSmashBros"}
+	submissions := utils.GetFromSubreddits(subreddits, 15, session)
 
-	// TODO add error handling
-	submissions, _ := session.Frontpage(geddit.DefaultPopularity, subOpts)
-
+	hypePlaySent := false
 	for _, s := range submissions {
 		if exists := dao.Exists(s.Permalink); !exists {
 			fmt.Printf("Title: %s\nAuthor: %s\n\n", s.Title, s.Author)
 			dao.Create(s.Permalink)
-			utils.SendTelegramMessage(fmt.Sprintf("%s : https://www.reddit.com/%s", s.Title, s.Permalink))
+			if strings.Contains(s.Title, "HYPE") || strings.Contains(s.Title, "Hype") || strings.Contains(s.Title, "hype") {
+				utils.SendTelegramMessage(fmt.Sprintf("I found this hype clip for you: \n\n%s : \n\nhttps://www.reddit.com/%s", s.Title, s.Permalink))
+				hypePlaySent = true
+			}
 		} else {
-			fmt.Println("Exists: ", s.Permalink)
+			fmt.Println("Already exists: ", s.Permalink)
 		}
+	}
+	if !hypePlaySent {
+		utils.SendTelegramMessage("No hype plays were found recently. Not very hype at all.")
 	}
 }
