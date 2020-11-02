@@ -1,6 +1,11 @@
 # Telegram Bot
 A Telegram bot written in Go that aggregates content from Reddit. Used largely for keeping Go skills up to speed. Initially modeled after https://github.com/masnun/telegram-bot and updated with current toolings and dependencies.
 
+This is only possible thanks to a couple of fantastic go libraries:
+* [telegram-bot-api](https://github.com/go-telegram-bot-api/telegram-bot-api) handles the interaction with the Telegram API
+* [jzelinskie/geddit](https://github.com/jzelinskie/geddit/) handles the interaction with the Reddit API
+* [gorm](https://github.com/go-gorm/gorm) is a popular, developer friendly ORM for Golang
+
 ## Running the bot
 Currently, this bot pulls secret or user-specific information from 4 OS environment variables. For example, someone on Linux systems using some variant of bash will need to define:
 
@@ -23,4 +28,6 @@ and store them in a temporary SQLite database within the project folder. This da
 
 ### Goal/Updates
 
-10/4: Basic sending of popular posts working. Future work will be directed at building a test suite and refining the functionality slightly. Can be improved with quasi-TDD from that point.
+10/4: Basic sending of popular posts/specific filtered posts (hardcoded) working.
+
+11/2: Working on abstracted bot command, something like `/getposts 10 subreddit(s) searchTerm(s)` to allow for basic title searching in a specific subreddit. Ideally, it will take 1 or more arguments for subreddit and 0 or more arguments for searchTerms, although multi-term handling will be decided later.

@@ -10,8 +10,8 @@ import (
 	"github.com/placy2/telegramBot/utils"
 )
 
-// PushReddit - Pushes reddit posts to the bot
-func PushReddit() {
+// SendHypePlays - Pushes reddit posts from specific gaming subs with 'hype' in the title to the bot
+func SendHypePlays() {
 	session, err := geddit.NewLoginSession(
 		os.Getenv("REDDIT_USERNAME"),
 		os.Getenv("REDDIT_PASSWORD"),
