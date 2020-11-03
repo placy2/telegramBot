@@ -23,8 +23,7 @@ $ go build -o bot
 $ ./bot
 ```
 
-This will send the first 15 posts on the reddit user's frontpage to the Telegram chat referenced by `$TELEGRAM_OWNER_CHATID` 
-and store them in a temporary SQLite database within the project folder. This database overwrites itself each time this bot is run.
+This will run the bot in command mode. You can then simply send `/start` to `AggregatorBot` on Telegram, which should give you a response back.
 
 ### Goal/Updates
 
