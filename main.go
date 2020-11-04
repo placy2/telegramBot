@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/placy2/telegramBot/tasks"
 
@@ -41,7 +42,10 @@ func main() {
 			case "secretMessage":
 				msg.Text = "Either Parker trusts you or you're code savvy (;"
 			case "hype":
-				tasks.SendHypePlays()
+				tasks.SendHypePlays(update.Message.Chat.ID)
+			case "getPosts":
+				updateBody := strings.TrimLeft(update.Message.Text, "/getPosts")
+				tasks.GetPosts(updateBody, update.Message.Chat.ID)
 			default:
 				msg.Text = "I don't know that command"
 			}

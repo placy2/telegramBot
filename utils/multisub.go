@@ -7,7 +7,7 @@ import (
 )
 
 // GetFromSubreddits - abstract gathering of posts from multiple subreddits,
-// with error checking. Returns numPosts length list of posts from each, all in one slice.
+// with error checking. Returns numPosts length list of new posts from each, all in one slice.
 func GetFromSubreddits(subreddits []string, numPosts int, session *geddit.LoginSession) []*geddit.Submission {
 	subOpts := geddit.ListingOptions{
 		Limit: numPosts,
