@@ -25,6 +25,19 @@ isolation is much easier to debug than one big change at the end.
   wiring up cron later is just `./bot --digest-once` — no code changes
   needed when that day comes.
 
+  > **Stale premise, flagged 2026-08-29 — read before Step 6.** "No
+  > hosting solution yet" was true when this was written; it no longer
+  > is. Two things changed it: `dispatch/poller` now runs a periodic
+  > in-process fetcher for as long as the bot is up (see the runbook's
+  > Phase 1 correction), and the repo picked up `run.sh` + a launchd
+  > plist (`com.parkerlacy.telegrambot.plist`, `RunAtLoad`+`KeepAlive`)
+  > to keep the bot itself running continuously. Cron-triggering a
+  > separate short-lived process is no longer the only way to get
+  > periodic behavior — it may not be the best way either, now that a
+  > persistent process is the plan. See the note on Step 6 below before
+  > building `--digest-once`; this is a real decision, not a stale fact
+  > to just correct in place.
+
 ## This guide originally targeted `geddit` — that's dead, read this first
 
 This guide was first written against the `geddit` library: Reddit login,
@@ -59,8 +72,10 @@ config means:
 2. **Run periodically and accumulate.** Each run's dedupe (see Step 5)
    means a digest triggered every few hours effectively builds up the
    24h picture over multiple runs, even though any single fetch doesn't
-   cover it. Better long-term, but needs the hosting/cron story this
-   project has explicitly deferred.
+   cover it. Better long-term — and as of 2026-08-29, this no longer
+   needs a hosting/cron story at all: `dispatch/poller` already runs
+   periodically, in-process, for as long as the bot is up. Extending it
+   to also check team aliases gets you this option for free (see Step 5).
 3. **Point `lookbackHours` at quieter, team-specific subreddits**, where
    100 posts genuinely does span a day or more.
 
@@ -79,9 +94,12 @@ something to build here:
 
 - **`reddit.OldLink`** — old.reddit.com link rewriting, in
   `dispatch/reddit/reddit.go`.
-- **`matchesAny`** — case-insensitive keyword matching, unexported in
-  `dispatch/tasks/match.go` (package `tasks`, so both `hype.go` and your
-  new `soccer.go` can call it directly with no import).
+- **`reddit.MatchesAny`** — case-insensitive keyword matching, in
+  `dispatch/reddit/match.go`. (Briefly lived unexported in
+  `dispatch/tasks/match.go`; moved and exported once `dispatch/poller`
+  needed to call it too — see the runbook's Phase 4b note if you want the
+  history.) Import `dispatch/reddit` to call it from `soccer.go`, same as
+  `hype.go` already does.
 
 Nothing to write here — just read those two files before continuing so
 Step 5 makes sense.
@@ -126,15 +144,17 @@ design for exactly this reuse.
 
 `dispatch/config/config.go` already has `Config` + `Load(path string)
 (*Config, error)`, currently shaped for the hype task alone
-(`Subreddits`, `Keywords`, `NumPosts`). Add a sibling section rather than
-a second package:
+(`Subreddits`, `Keywords`, `NumPosts`, plus `PollSeconds` added for the
+poller — don't drop that field when you edit this struct). Add a sibling
+section rather than a second package:
 
 ```go
 type Config struct {
-	Subreddits []string     `json:"subreddits"` // existing — hype task
-	Keywords   []string     `json:"keywords"`   // existing — hype task
-	NumPosts   int          `json:"numPosts"`   // existing — hype task
-	Soccer     SoccerConfig `json:"soccer"`     // new
+	Subreddits  []string     `json:"subreddits"`  // existing — hype task
+	Keywords    []string     `json:"keywords"`    // existing — hype task
+	NumPosts    int          `json:"numPosts"`     // existing — hype task
+	PollSeconds int          `json:"pollSeconds"`  // existing — poller tick interval
+	Soccer      SoccerConfig `json:"soccer"`       // new
 }
 
 type SoccerConfig struct {
@@ -156,6 +176,7 @@ And the matching addition to `config.json`:
   "subreddits": ["VALORANT", "GlobalOffensive", "RocketLeague", "SuperSmashBros"],
   "keywords": ["hype"],
   "numPosts": 15,
+  "pollSeconds": 75,
   "soccer": {
     "subreddits": ["soccer", "PremierLeague"],
     "teams": [
@@ -168,10 +189,15 @@ And the matching addition to `config.json`:
 ```
 
 `Team.Aliases` exists because "mentions the team" needs more than an exact
-name match — a club has nicknames. `matchesAny` (Steps 1–2) takes a
+name match — a club has nicknames. `reddit.MatchesAny` (Steps 1–2) takes a
 `[]string`, so this slots right in. One `Load` call in `main.go` now
 produces config for both tasks — no second loader, no second file to keep
 in sync.
+
+`Load` also fills in defaults for missing/zero fields now (`NumPosts` →
+25, `PollSeconds` → 75, floored at 60) — a pattern worth extending to
+`SoccerConfig` rather than leaving `LookbackHours: 0` to silently produce
+a zero-width window if `soccer` is ever omitted from `config.json`.
 
 ## Step 5 — `tasks/soccer.go`: the task itself
 
@@ -182,6 +208,32 @@ currently only has a placeholder in the repo —
 `func Soccer(ctx context.Context, subs []string) { _ = ctx; _ = subs }` —
 you're replacing that stub, not adding alongside it. Rename it to match
 the `SendX` convention `hype.go` already established.
+
+> **This sketch is now stale — read before writing `soccer.go`.** It was
+> written before `dispatch/poller` existed. `FetchSubreddit` inline plus
+> `time.Sleep(time.Second)` was based on the same wrong rate-limit
+> assumption `hype.go` originally shipped with: measured directly
+> (2026-08-29), Reddit's anonymous RSS budget is ~1 request/60s/IP,
+> *shared across all feeds* — not per subreddit. A 1-second sleep 429s on
+> every fetch but the first, and `/digest` calling `FetchSubreddit`
+> directly would also compete with `/hype`'s poller for that same global
+> budget. See `dispatch/docs/modernization-runbook.md`'s Phase 1
+> correction and `CLAUDE.md`'s architecture section for the fix that
+> landed: all Reddit fetching now goes through one background poller
+> (`dispatch/poller.Run`), which persists matches as `store.HypeClip` rows
+> for `/hype` to read.
+>
+> **`/digest` should not add a second poller or a second call site for
+> `reddit.FetchSubreddit`.** The cleanest path is extending the existing
+> poller to also check `cfg.Soccer.Teams` against each entry it already
+> fetches (it's pulling every configured subreddit's entries once per
+> sweep regardless) and persist soccer matches alongside hype clips — this
+> is exactly the "run periodically and accumulate" option this guide
+> lists below, and it now falls out for free instead of needing its own
+> infrastructure. `SendSoccerDigest` becomes a store read, the same shape
+> as `SendHypePlays`, not a fetch loop. The sketch below is left as a
+> reference for the *filtering and formatting* logic (team matching,
+> section building) — don't copy its fetch loop or its sleep.
 
 Sketch (fill in the gaps yourself):
 
@@ -217,15 +269,17 @@ func SendSoccerDigest(ctx context.Context, cfg *config.Config) {
 			if e.Published.Before(cutoff) {
 				continue
 			}
-			// TODO: for each cfg.Soccer.Teams, check matchesAny(e.Title, team.Aliases)
+			// TODO: for each cfg.Soccer.Teams, check reddit.MatchesAny(e.Title, team.Aliases)
 			// and append a formatted line (headline + reddit.OldLink(e.Link.Href))
 			// to found[team.Name].
 		}
+		// Don't reintroduce this sleep — see the note above. Fetching now
+		// belongs in dispatch/poller, not here.
 		time.Sleep(time.Second)
 	}
 
 	// TODO: if found is empty, telegram.Send a "nothing found" message —
-	// mirror how SendHypePlays handles its `sent == 0` case.
+	// mirror how SendHypePlays handles its zero-clips case.
 
 	// TODO: build the digest with strings.Builder, one section per team,
 	// iterating cfg.Soccer.Teams (not the map) so section order is stable —
@@ -240,15 +294,16 @@ Two open decisions the guide won't make for you — think about both before
 filling in the TODOs above, and note your answer somewhere (a comment is
 fine) since neither has an obviously-correct default:
 
-- **Dedupe.** `hype.go` calls `store.Exists(e.ID)` / `store.Create(e.ID)`
-  to never repeat a post — note this uses the RSS entry's `<id>` as the
-  key (`store`'s field was recently renamed from `PermaLink` to `PostID`
-  to reflect that; see `modernization-runbook.md` Phase 3 if that rename
-  hasn't landed yet). Should `/digest` do the same? An on-demand command
-  arguably *should* show the full current window every time you ask, even
-  if you asked ten minutes ago — which argues against calling `store`
-  here at all. If the digest later runs on a schedule instead (see the
-  "run periodically and accumulate" option above), you'd want the
+- **Dedupe.** Stale detail, current shape: `store`'s dedupe-only
+  `Exists`/`Create` pair is gone — `hype.go` now calls
+  `store.UnsentClips`/`store.MarkSent` against a `HypeClip` table that the
+  poller populates (`PostID` is still the RSS entry `<id>`, just on a
+  richer row now — see `CLAUDE.md`). The underlying question is unchanged
+  though: should `/digest` do the same? An on-demand command arguably
+  *should* show the full current window every time you ask, even if you
+  asked ten minutes ago — which argues against a sent/unsent split here.
+  If the digest runs on a schedule instead (see "run periodically and
+  accumulate" above — now how the poller already works), you'd want the
   opposite. Decide based on which trigger you're actually building for.
 - **Cross-team matches.** If one headline mentions two configured teams
   (a derby, a transfer between them), does it appear under both team
@@ -257,6 +312,46 @@ fine) since neither has an obviously-correct default:
   belongs in both digests").
 
 ## Step 6 — wire up `main.go`
+
+> **Decide this before writing any of Step 6 — the premise changed.**
+> `--digest-once` existed to solve one problem: this bot had no way to
+> run periodically, so an external cron job invoking a short-lived
+> `./bot --digest-once` process was the only path to "send me a digest
+> without me asking for it." As of 2026-08-29 that problem has two
+> independent fixes already in place, neither built for this reason but
+> both applicable: `dispatch/poller` runs in-process for as long as the
+> bot is up, and `run.sh` + `com.parkerlacy.telegrambot.plist`
+> (`RunAtLoad`/`KeepAlive`) keep the bot itself running continuously via
+> launchd. If the bot is now always up, "no hosting solution" is no
+> longer true, and a cron-triggered separate process is solving a problem
+> that's already solved a different way.
+>
+> Two real options, not a stale fact to just correct:
+>
+> - **A — drop `--digest-once` entirely (recommended).** Extend the
+>   poller to also check `cfg.Soccer.Teams` against entries it's already
+>   fetching, and persist matches the same way `saveMatches` does for
+>   hype clips. `/digest` becomes a Telegram command that reads the
+>   store — no network call, no `flag` package, no second entry point.
+>   Same shape as `/hype`, and if you want it pushed automatically rather
+>   than asked-for, that's a small ticker in `main.go` (or in the poller)
+>   that calls the send function on a schedule — still one persistent
+>   process, no cron. Simpler, and consistent with how `/hype` already
+>   works.
+> - **B — keep `--digest-once`, but as a genuinely separate mode.** Valid
+>   if you want the digest runnable *without* the long-lived bot process
+>   at all — e.g. from a machine that isn't running the launchd job, or
+>   if you decide you don't trust `KeepAlive` and want cron as a
+>   independent fallback trigger. In that case `--digest-once` needs to
+>   do its own one-shot fetch (roughly the original sketch below, minus
+>   the bad sleep) rather than reading a store the poller may not have
+>   populated in a separate process invocation — the two don't share
+>   state across processes.
+>
+> The rest of this step assumes B, since that's what it originally
+> documented — adapt to A's shape (a `case "digest":` in the switch,
+> backed by a store read like `hype.go`'s, no `flag` code at all) if you
+> go that way, which is the smaller amount of code either way.
 
 **Concept:** the `flag` package for CLI arguments, parsed once at
 `main()`'s top before anything else happens.
@@ -284,11 +379,16 @@ Then in the existing `switch update.Message.Command()` block, add:
 ```go
 case "digest":
 	msg.Text = "Building your digest..."
-	tasks.SendSoccerDigest(ctx, cfg)
+	work = func() { tasks.SendSoccerDigest(ctx, cfg) }
 ```
-(set `msg.Text` before calling the task — `main.go`'s `"hype"` case
-currently forgets to, sending an empty acknowledgment; don't repeat that
-one here) and extend the `/help` text to mention `/digest`.
+Match `main.go`'s current shape here, not an older version of it: `msg.Text`
+is set inline (the empty-ack bug this section used to warn about is fixed),
+but the task call goes into the `work` closure and runs *after*
+`bot.Send(msg)`, not inline in the case — that's what makes the ack arrive
+before the digest does, the same fix `/hype` needed once
+`SendHypePlays`/`SendSoccerDigest` do enough work to take noticeable time.
+See `main.go`'s current `case "hype":` for the exact pattern to copy. Also
+extend the `/help` text to mention `/digest`.
 
 ## Step 7 — docs
 
@@ -307,11 +407,17 @@ working from a stale map.
 - `go vet ./...` for anything `build` doesn't catch.
 - Manual run, with `TELEGRAM_KEY` and `TELEGRAM_OWNER_CHATID` set (the
   only two env vars this needs — no Reddit credentials, since RSS is
-  unauthenticated): `./bot --digest-once` should fetch and filter
-  entries from each configured subreddit and send (or attempt to send) a
-  Telegram message — confirms the flag path short-circuits before the
-  update loop.
+  unauthenticated):
+  - **If you built Option B** (`--digest-once`): `./bot --digest-once`
+    should fetch and filter entries from each configured subreddit and
+    send (or attempt to send) a Telegram message — confirms the flag path
+    short-circuits before the update loop.
+  - **If you built Option A** (recommended — no flag): send `/digest` in
+    Telegram after the bot's been running long enough for the poller to
+    have swept the configured soccer subreddits at least once (poll
+    interval × subreddit count, worst case), and confirm the ack arrives
+    before the digest, same check as `/hype`.
 - Without live Telegram credentials, at minimum confirm
   `SendSoccerDigest` fails gracefully (prints an error, no panic) when a
-  fetch or send fails — matching `SendHypePlays`'s existing behavior on
-  the same failure paths.
+  fetch or send fails (Option B) or when the store read errors (Option A)
+  — matching `SendHypePlays`'s existing behavior on its equivalent paths.

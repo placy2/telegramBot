@@ -98,9 +98,12 @@ per sub). For the soccer digest it means one of:
 
 - Accept "the last ~100 posts" as the practical definition of recent,
   which is reasonable for an on-demand `/digest` you trigger manually.
-- Run periodically and let the existing `RedditPost` dedupe table
-  accumulate the 24h picture across runs — better anyway, but it needs
-  the hosting story you don't have yet.
+- Run periodically and let a dedupe table accumulate the 24h picture
+  across runs — better anyway, and no longer blocked on a hosting story:
+  `dispatch/poller` (added after this section was written; see the
+  correction below) is exactly that periodic runner, ticking in-process
+  for as long as the bot is up. The table it accumulates into is now
+  called `HypeClip`, not `RedditPost` (see Phase 3g's update).
 - Point at quieter, team-specific subs, where 100 posts can span days.
 
 Note this deletes the pagination design from the soccer plan
@@ -170,6 +173,23 @@ Two things worth internalizing from that snippet:
 I got a `429` on `old.reddit.com` during testing, so add a small sleep
 between subreddit fetches (a plain `time.Sleep(time.Second)` in the loop
 is plenty at this scale — no rate-limiter library needed).
+
+> **Correction (2026-08-29):** `time.Sleep(time.Second)` was wrong by
+> about 60x. Measured directly against `www.reddit.com/.../new.rss` with a
+> conforming User-Agent: the anonymous budget is **exactly 1 request per
+> 60-second window, per IP, shared across all feeds** —
+> `x-ratelimit-used: 1` / `x-ratelimit-remaining: 0.0` after a single
+> success, confirmed clean over a 10-minute probe with no penalty
+> escalation. A 1-second gap between subreddits guarantees 429s on every
+> fetch but the first, which is exactly the bug reported when `/hype` was
+> first tested end-to-end. The fix wasn't a longer sleep — inline fetching
+> at 1 req/min makes a multi-subreddit command take minutes. Instead,
+> Reddit fetching moved out of the command path entirely into
+> `dispatch/poller`, a background goroutine that ticks at a safe interval
+> (default 75s, floored at 60s via `config.PollSeconds`) and persists
+> matches for `/hype` to read. See `CLAUDE.md`'s architecture section for
+> the resulting package. This closes out the `time.Sleep` line above —
+> don't reintroduce a sleep-based pacing loop on a command's hot path.
 
 ### Rewiring the call sites
 
@@ -346,10 +366,14 @@ gorm.Open(sqlite.Open("bot.db"), &gorm.Config{})
 
 `.gitignore` already covers `*.db`, so this needs no other changes.
 
-### 3e. Stop hardcoding `bot.Debug = true`
+### 3e. Stop hardcoding `bot.Debug = true` — done
 
 `main.go:18` logs every update including full message content,
 unconditionally. Gate it: `bot.Debug = os.Getenv("BOT_DEBUG") != ""`.
+
+**Done (2026-08-29).** `main.go` now sets
+`bot.Debug = os.Getenv("BOT_DEBUG") != ""`; document the env var in
+`README.md`.
 
 ### 3f. `/hype` sends an empty acknowledgment
 
@@ -371,6 +395,19 @@ case "hype":
     tasks.SendHypePlays(ctx, cfg)
 ```
 
+**This fix was necessary but not sufficient.** Setting `msg.Text` fixed
+the empty-message bug, but `bot.Send(msg)` in `main.go` was still called
+*after* the `switch` block — so the ack, now non-empty, still didn't go
+out until `SendHypePlays` (a synchronous, multi-second-plus network call)
+had fully returned. First end-to-end test (2026-08-29) surfaced this as
+"the 'no plays found' message arrived before the 'looking for plays'
+message." Real fix: `bot.Send(msg)` moved to fire immediately after the
+`switch`, before the command's work runs — see `main.go` and `CLAUDE.md`'s
+architecture section. Also see Phase 1's correction above:
+`SendHypePlays` no longer does the network fetch itself at all, so this
+is doubly moot now — the ack is followed by a database read, not a
+multi-subreddit RSS crawl.
+
 ### 3g. `store`'s field name lagged behind what it stores
 
 `hype.go` dedupes via `store.Exists(e.ID)` / `store.Create(e.ID)` —
@@ -390,6 +427,40 @@ entry ID. Rename the field to something like `PostID` in both
 it — GORM's default snake_case mapping means `PostID` → `post_id`, so
 the hardcoded `"perma_link = ?"` has to change too or the lookup will
 silently query a column that doesn't exist under the new field name.
+
+**Done, and superseded (2026-08-29).** `PostID` landed before this pass.
+`store` has since moved beyond a dedupe-only table entirely: `RedditPost`
+(one `PostID` string) is now `HypeClip` (`PostID` unique-indexed, plus
+`Subreddit`, `Title`, `URL`, `Published`, `SentAt`) because the background
+poller (Phase 1's correction, above) needs somewhere to hold a match
+between finding it and `/hype` delivering it — `Exists`/`Create` became
+`SaveClip`/`UnsentClips`/`MarkSent`. See `CLAUDE.md`.
+
+### 3h. Ctrl-C could hang for up to a minute — fixed (2026-08-29)
+
+Not in the original pass — introduced by the poller work's graceful
+shutdown, then fixed in the same session. `main.go` added
+`signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)` so the poller
+goroutine could be told to stop cleanly. That replaced Go's default
+SIGINT behavior (instant kill) with "cancel a context, then wait for the
+program to notice" — and the thing that has to notice,
+`tgbotapi.GetUpdatesChan`'s internal loop, only checks for shutdown
+*between* long-poll requests. Each request can block up to `u.Timeout`
+(60s) waiting on Telegram, and `NewBotAPI`'s `http.Client` has no
+client-side timeout backing it, so the worst case was bounded only by
+Telegram actually responding. First Ctrl-C after this shipped looked like
+it did nothing; a second one didn't help either, since the context was
+already cancelled.
+
+Fix: the shutdown goroutine now force-`os.Exit`s 3 seconds after the
+signal if the natural shutdown hasn't landed by then — there's no
+buffered work here that needs a longer graceful drain. Verified against a
+standalone repro of the same shape (a goroutine that only checks a
+shutdown channel between blocking calls): without the fix it hangs for
+the full call duration; with it, exits in exactly 3s. If you touch
+`main.go`'s shutdown path again, keep the force-exit — this is a known
+limitation of the archived `telegram-bot-api` library, not something
+fixable by waiting more patiently.
 
 ---
 
@@ -507,12 +578,21 @@ Proportional to a hobby repo — don't gold-plate:
   good excuse to learn Go's table-driven test idiom. `go test ./...`.
   There are currently no tests at all; two good ones beats a coverage
   mandate.
+
+  **Done (2026-08-29).** `dispatch/reddit/reddit_test.go` covers
+  `OldLink` (now `reddit.OldLink`, since Phase 4a landed) and
+  `MatchesAny` (now `reddit.MatchesAny`, moved from `tasks` so
+  `dispatch/poller` can share it too).
 - **Remove the committed binary.** `telegramBot` is tracked in git — a
   6-year-old **Linux x86-64** ELF executable, on a repo you now develop
   on darwin/arm64. It cannot even run here.
   ```bash
   git rm --cached telegramBot
   ```
+
+  **Done.** Both the original `telegramBot` (removed in the initial
+  modernization refactor commit) and the later locally-built `/bot`
+  (removed once `.gitignore` covered it) are gone from git.
   Then add `/bot` and `/telegramBot` to `.gitignore` (the existing rules
   cover `*.exe`/`*.so` but not extensionless Unix binaries).
 - **README refresh.** It documents 4 env vars; after Phase 1 you'll be
@@ -531,6 +611,14 @@ Proportional to a hobby repo — don't gold-plate:
   `go tasks.SendHypePlays(ctx, cfg)` once you're back in this code; not
   worth its own commit today.
 
+  **Superseded (2026-08-29), not just done.** The concern itself is gone,
+  not merely fixed by adding `go`: `SendHypePlays` no longer takes `ctx`
+  or does network I/O at all (see Phase 1's correction) — it's a bounded
+  SQLite read (`store.UnsentClips`, capped at 20 rows) plus a handful of
+  Telegram sends, all fast. The actual blocking work — Reddit fetches —
+  now lives in `dispatch/poller`'s own goroutine, off the update loop
+  entirely. A `go` wrapper around `SendHypePlays` would add nothing today.
+
 ---
 
 ## Target file layout
@@ -543,22 +631,25 @@ when you want a real boundary — not merely to keep files tidy.
 
 ```
 telegramBot/
-├── main.go                       # entry point: flags, bot setup, command dispatch
+├── main.go                       # entry point: bot setup, poller launch, command dispatch
 └── dispatch/
     ├── config/
-    │   ├── config.go             # Config struct + Load()
-    │   └── config.json           # subreddits, teams, lookback (hand-edited)
+    │   ├── config.go             # Config struct + Load() (with defaults/floors)
+    │   └── config.json           # subreddits, keywords, post count, poll interval (hand-edited)
     ├── reddit/
-    │   └── reddit.go             # Entry, FetchSubreddit, OldLink
+    │   ├── reddit.go             # Entry, FetchSubreddit, RateLimitError, OldLink
+    │   ├── match.go              # MatchesAny — exported, shared across packages
+    │   └── reddit_test.go
+    ├── poller/
+    │   └── poller.go             # Run() — the only caller of FetchSubreddit; Snapshot() health
     ├── telegram/
     │   └── telegram.go           # Send()
     ├── store/
-    │   ├── store.go              # Init(), Exists(), Create()
-    │   └── entities.go           # RedditPost
+    │   ├── store.go              # Init(), SaveClip(), UnsentClips(), MarkSent()
+    │   └── entities.go           # HypeClip
     ├── tasks/
-    │   ├── hype.go               # SendHypePlays
-    │   ├── soccer.go             # SendSoccerDigest
-    │   └── match.go              # matchesAny — unexported, shared by both
+    │   ├── hype.go               # SendHypePlays — reads store, no network
+    │   └── soccer.go             # placeholder — see daily-soccer-digest.md
     └── docs/
 ```
 
@@ -569,6 +660,15 @@ reaching for `internal/` (which the guidance below still argues against for
 the reasons given there) — a lightweight middle ground between "everything
 at root" and the compiler-enforced privacy `internal/` provides.
 
+**Updated 2026-08-29** to reflect the poller work: `dispatch/poller` was
+added (new package, not anticipated when this layout was first written),
+`tasks/match.go` moved to `reddit/match.go` as the exported `MatchesAny`,
+and `store`'s dedupe-only API became a fuller clip-lifecycle API on a
+renamed `HypeClip` type. See `CLAUDE.md`'s architecture section for the
+authoritative current description — this section is a snapshot of intent
+per-phase and will drift again as soon as `soccer.go` stops being a
+placeholder.
+
 ### What moved, and why
 
 | Before | Became | Reason |
@@ -576,7 +676,7 @@ at root" and the compiler-enforced privacy `internal/` provides.
 | `utils/telegram.go` | `dispatch/telegram/telegram.go` | Named for what it provides |
 | `utils/multisub.go` | `dispatch/reddit/reddit.go` | Reddit domain logic belongs together |
 | `utils/reddit_links.go` (planned) | `dispatch/reddit/reddit.go` | Same — it's Reddit knowledge |
-| `utils/matching.go` (planned) | `dispatch/tasks/match.go`, unexported | Only tasks use it; no boundary needed |
+| `utils/matching.go` (planned) | `dispatch/reddit/match.go`, exported `MatchesAny` | Landed in `tasks/match.go` unexported first; re-exported and moved once `dispatch/poller` needed it too |
 | `dao/` | `dispatch/store/` | `dao` is a Java-ism; Go prefers plain names |
 | `tasks/reddit.go` | `dispatch/tasks/hype.go` | Avoids confusion with the `reddit` package |
 
@@ -585,11 +685,20 @@ at root" and the compiler-enforced privacy `internal/` provides.
 what's inside, and it becomes a junk drawer that everything imports.
 Every planned occupant had a natural home somewhere more specific.
 
-Note `matchesAny` in particular: `hype.go` and `soccer.go` are both in
-package `tasks`, so they can share a lowercase helper with no new package
-and no exported API. If you were writing this in Java you'd reach for a
-`StringUtils` class; in Go, a third file in the same package is the whole
-answer.
+Note `matchesAny` in particular: at this point in the pass (Phase 4b) it's
+a fair call to make it a lowercase helper shared by `hype.go` and
+`soccer.go`, both in package `tasks` — no new package, no exported API.
+If you were writing this in Java you'd reach for a `StringUtils` class; in
+Go, a third file in the same package is the whole answer.
+
+**This didn't survive Phase 1's later correction.** Once Reddit fetching
+moved into `dispatch/poller` — a *third* package that also needs to
+filter entries by keyword — `tasks`-private no longer covered every
+caller. `matchesAny` is now the exported `reddit.MatchesAny`, living in
+`dispatch/reddit/match.go`. The lesson still holds as written (don't
+reach for a package prematurely) — it's just that "every caller" turned
+out to include code that hadn't been designed yet when this section was
+written. `dispatch/tasks/match.go` no longer exists.
 
 ### Naming: avoid stutter
 
@@ -662,3 +771,13 @@ everything after it is polish on a bot that works again.
 
 Run `go build ./... && go vet ./...` between each. Both are clean today,
 so any output is something you just introduced.
+
+**This sequence predates the poller work and stops short of it.** As of
+2026-08-29 the working tree also carries (uncommitted): the rate-limit
+fix and `dispatch/poller` package, the `HypeClip` store rework, the
+message-ordering fix, the graceful-shutdown fix (3h above), and the doc
+updates across this file, `CLAUDE.md`, `README.md`, and
+`daily-soccer-digest.md`. None of that fits cleanly into commits 1–6
+above; treat it as its own commit (or a couple, split by
+poller-vs-shutdown-fix if you want the history granular) on top of
+whatever of 1–6 already landed.
