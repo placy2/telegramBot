@@ -4,7 +4,7 @@
 // dispatch/docs/modernization-runbook.md), which is far too slow to serve
 // inside a single /hype command across several subreddits. Instead, Run
 // ticks in the background, fetching one subreddit per tick and persisting
-// keyword matches as store.HypeClip rows; /hype then just reads the store.
+// keyword matches as store.FetchedPost rows; /hype then just reads the store.
 package poller
 
 import (
@@ -21,7 +21,7 @@ import (
 
 const defaultInterval = 75 * time.Second
 
-// Status is a snapshot of the poller's most recent fetch, used by
+// Status is a snapshot of one feed's most recent fetch, used by tasks like
 // SendHypePlays to tell a genuinely quiet feed apart from a broken one.
 type Status struct {
 	LastSuccess time.Time
@@ -31,31 +31,95 @@ type Status struct {
 
 var (
 	mu     sync.Mutex
-	status Status
+	status = map[string]Status{}
 )
 
-// Snapshot returns the poller's current health. Safe to call concurrently.
-func Snapshot() Status {
+// Snapshot returns the given feed's current health. Safe to call
+// concurrently. Feeds are tracked separately — since jobs from every
+// configured feed interleave in one rotation, a single global Status would
+// let one feed's error or success bleed into another's report.
+func Snapshot(feed string) Status {
 	mu.Lock()
 	defer mu.Unlock()
-	return status
+	return status[feed]
 }
 
-func setStatus(sub string, err error) {
+func setStatus(feed, sub string, err error) {
 	mu.Lock()
 	defer mu.Unlock()
-	status.LastSub = sub
-	status.LastErr = err
+	s := status[feed]
+	s.LastSub = sub
+	s.LastErr = err
 	if err == nil {
-		status.LastSuccess = time.Now()
+		s.LastSuccess = time.Now()
 	}
+	status[feed] = s
 }
 
-// Run round-robins one subreddit fetch per tick and persists keyword
-// matches to store. It blocks until ctx is cancelled, so callers should
-// invoke it with `go poller.Run(ctx, cfg)`.
+type Feed struct {
+	Name       string // either gaming or soccer right now, persists to the FetchedPost object
+	Subreddits []string
+	Match      func(string) bool // returns true if the title matches the filter
+}
+
+// job is one (feed, subreddit) pair in the round-robin rotation. Feeds are
+// flattened into jobs rather than polled feed-by-feed because Reddit's
+// anonymous RSS rate limit is shared across every subreddit regardless of
+// which feed it belongs to.
+type job struct {
+	feed Feed
+	sub  string
+}
+
+// buildFeeds turns cfg's per-command sections into pollable Feeds. Soccer's
+// team/alias structure is flattened into a single alias list here.
+func buildFeeds(cfg *config.Config) []Feed {
+	var feeds []Feed
+
+	if len(cfg.Gaming.Subreddits) > 0 {
+		keywords := cfg.Gaming.Keywords
+		feeds = append(feeds, Feed{
+			Name:       "gaming",
+			Subreddits: cfg.Gaming.Subreddits,
+			Match: func(title string) bool {
+				return reddit.MatchesAny(title, keywords)
+			},
+		})
+	}
+
+	if len(cfg.Soccer.Subreddits) > 0 {
+		var all_aliases []string
+		for _, t := range cfg.Soccer.Teams {
+			all_aliases = append(all_aliases, t.Name)
+			all_aliases = append(all_aliases, t.Aliases...)
+		}
+		feeds = append(feeds, Feed{
+			Name:       "soccer",
+			Subreddits: cfg.Soccer.Subreddits,
+			Match: func(title string) bool {
+				return reddit.MatchesAny(title, all_aliases)
+			},
+		})
+	}
+
+	return feeds
+}
+
+func flatten(feeds []Feed) []job {
+	var jobs []job
+	for _, f := range feeds {
+		for _, sub := range f.Subreddits {
+			jobs = append(jobs, job{feed: f, sub: sub})
+		}
+	}
+	return jobs
+}
+
+// Run round-robins one subreddit fetch per tick, across every configured
+// feed combined, and persists matches to store.
 func Run(ctx context.Context, cfg *config.Config) {
-	if len(cfg.Subreddits) == 0 {
+	jobs := flatten(buildFeeds(cfg))
+	if len(jobs) == 0 {
 		log.Println("poller: no subreddits configured, not starting")
 		return
 	}
@@ -75,46 +139,47 @@ func Run(ctx context.Context, cfg *config.Config) {
 		case <-time.After(wait):
 		}
 
-		sub := cfg.Subreddits[idx]
-		entries, err := reddit.FetchSubreddit(ctx, sub, cfg.NumPosts)
-		setStatus(sub, err)
+		j := jobs[idx]
+		entries, err := reddit.FetchSubreddit(ctx, j.sub, cfg.NumPosts)
+		setStatus(j.feed.Name, j.sub, err)
 
 		if err != nil {
 			var rle *reddit.RateLimitError
 			if errors.As(err, &rle) {
-				// Don't advance idx — retry the same subreddit once the
-				// window resets, rather than silently skipping it.
-				log.Printf("poller: rate limited on r/%s, retrying in %s", sub, rle.RetryAfter)
+				// Don't advance idx — retry the same job once the window
+				// resets, rather than silently skipping it.
+				log.Printf("poller: rate limited on r/%s, retrying in %s", j.sub, rle.RetryAfter)
 				wait = rle.RetryAfter
 				continue
 			}
-			log.Printf("poller: fetch error for r/%s: %v", sub, err)
-			idx = (idx + 1) % len(cfg.Subreddits)
+			log.Printf("poller: fetch error for r/%s: %v", j.sub, err)
+			idx = (idx + 1) % len(jobs)
 			wait = interval
 			continue
 		}
 
-		saveMatches(sub, entries, cfg.Keywords)
+		saveMatches(j.feed.Name, j.sub, entries, j.feed.Match)
 
-		idx = (idx + 1) % len(cfg.Subreddits)
+		idx = (idx + 1) % len(jobs)
 		wait = interval
 	}
 }
 
-func saveMatches(sub string, entries []reddit.Entry, keywords []string) {
+func saveMatches(feedName, sub string, entries []reddit.Entry, match func(string) bool) {
 	for _, e := range entries {
-		if !reddit.MatchesAny(e.Title, keywords) {
+		if !match(e.Title) {
 			continue
 		}
-		clip := store.HypeClip{
+		post := store.FetchedPost{
+			Feed:      feedName,
 			PostID:    e.ID,
 			Subreddit: sub,
 			Title:     e.Title,
 			URL:       reddit.OldLink(e.Link.Href),
 			Published: e.Published,
 		}
-		if err := store.SaveClip(&clip); err != nil {
-			log.Printf("poller: save clip %s: %v", e.ID, err)
+		if err := store.SavePost(&post); err != nil {
+			log.Printf("poller: save post %s: %v", e.ID, err)
 		}
 	}
 }

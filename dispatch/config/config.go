@@ -19,10 +19,27 @@ const (
 )
 
 type Config struct {
-	Subreddits  []string `json:"subreddits"`
-	Keywords    []string `json:"keywords"`
-	NumPosts    int      `json:"numPosts"`
-	PollSeconds int      `json:"pollSeconds"`
+	NumPosts    int          `json:"numPosts"`
+	PollSeconds int          `json:"pollSeconds"`
+	Gaming      GamingConfig `json:"gaming"`
+	Soccer      SoccerConfig `json:"soccer"`
+}
+
+// Specific to the '/hype' command originally in this bot - expects subreddits to poll and keywords to filter for in the title of posts.
+type GamingConfig struct {
+	Subreddits []string `json:"subreddits"`
+	Keywords   []string `json:"keywords"`
+}
+
+type SoccerConfig struct {
+	Subreddits    []string `json:"subreddits"`
+	Teams         []Team   `json:"teams"`
+	LookbackHours int      `json:"lookbackHours"`
+}
+
+type Team struct {
+	Name    string   `json:"name"`
+	Aliases []string `json:"aliases"`
 }
 
 func Load(path string) (*Config, error) {

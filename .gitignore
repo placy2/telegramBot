@@ -20,7 +20,7 @@
 *.db-shm
 *.db-wal
 .vscode/
-/token.txt
+.obsidian/
 logs/*
 !logs/.gitkeep
 

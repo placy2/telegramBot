@@ -18,7 +18,7 @@ func Init() {
 	var err error
 	db, err = gorm.Open(sqlite.Open("telegramBot.db"), &gorm.Config{
 		// Silent: gorm's default logger prints every "record not found" as a
-		// warning, which is expected/routine here (SaveClip's OnConflict
+		// warning, which is expected/routine here (SavePost's OnConflict
 		// check, dedupe lookups) rather than an actual problem to surface.
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
@@ -26,35 +26,37 @@ func Init() {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 
-	db.AutoMigrate(&HypeClip{})
+	db.AutoMigrate(&FetchedPost{})
 }
 
-// SaveClip inserts a HypeClip, silently doing nothing if PostID already
+// SavePost inserts a FetchedPost, silently doing nothing if PostID already
 // exists — this is how re-fetching the same subreddit avoids duplicates
 // without a separate Exists check.
-func SaveClip(c *HypeClip) error {
+func SavePost(c *FetchedPost) error {
 	result := db.Clauses(clause.OnConflict{DoNothing: true}).Create(c)
 	return result.Error
 }
 
-// UnsentClips returns up to limit not-yet-delivered clips, newest first.
-func UnsentClips(limit int) ([]HypeClip, error) {
-	var clips []HypeClip
-	result := db.Where("sent_at IS NULL").
+// UnsentPosts returns up to limit not-yet-delivered posts for the given
+// feed, newest first — scoped to one feed so e.g. /hype only ever sees
+// gaming posts, not soccer ones the poller saved for /digest.
+func UnsentPosts(feed string, limit int) ([]FetchedPost, error) {
+	var posts []FetchedPost
+	result := db.Where("feed = ? AND sent_at IS NULL", feed).
 		Order("published DESC").
 		Limit(limit).
-		Find(&clips)
-	return clips, result.Error
+		Find(&posts)
+	return posts, result.Error
 }
 
-// MarkSent stamps the given clips as delivered so UnsentClips won't return
+// MarkSent stamps the given posts as delivered so UnsentPosts won't return
 // them again.
 func MarkSent(ids []uint) error {
 	if len(ids) == 0 {
 		return nil
 	}
 	now := time.Now()
-	result := db.Model(&HypeClip{}).Where("id IN ?", ids).Update("sent_at", &now)
+	result := db.Model(&FetchedPost{}).Where("id IN ?", ids).Update("sent_at", &now)
 	if result.Error != nil {
 		fmt.Println(result.Error.Error())
 	}

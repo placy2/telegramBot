@@ -1,6 +1,26 @@
 {
-  "subreddits": ["VALORANT", "GlobalOffensive", "RocketLeague", "SuperSmashBros"],
-  "keywords": ["hype"],
   "numPosts": 15,
-  "pollSeconds": 75
+  "pollSeconds": 75,
+  "gaming": {
+    "subreddits": ["VALORANT", "GlobalOffensive", "RocketLeague", "SuperSmashBros"],
+    "keywords": ["hype"]
+  },
+  "soccer" : {
+    "subreddits": ["soccer", "mls"],
+    "teams": [
+      {
+        "name": "Colorado Rapids",
+        "aliases": ["COL ", "Rapids", "Colorado"]
+      },
+      {
+        "name": "West Ham United",
+        "aliases": ["Hammers", "WHU ", "West Ham"]
+      },
+      {
+        "name": "Eintracht Frankfurt",
+        "aliases": ["Frankfurt", "Eintracht", "SGE "]
+      }
+    ],
+    "lookbackHours": 24
+  }
 }

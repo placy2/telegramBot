@@ -90,6 +90,9 @@ func main() {
 			case "hype":
 				msg.Text = "Looking for hype plays..."
 				work = tasks.SendHypePlays
+			case "soccer":
+				msg.Text = "Looking for soccer news..."
+				work = tasks.SoccerNewsDigest
 			default:
 				msg.Text = "I don't know that command"
 			}
