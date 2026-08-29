@@ -1,4 +1,4 @@
-package dao
+package store
 
 import (
 	"gorm.io/gorm"
@@ -8,5 +8,5 @@ import (
 // Used in ./gorm.go
 type RedditPost struct {
 	gorm.Model
-	PermaLink string
+	PostID string
 }

@@ -1,4 +1,4 @@
-package utils
+package telegram
 
 import (
 	"fmt"
@@ -6,14 +6,15 @@ import (
 	"os"
 	"strconv"
 
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// SendTelegramMessage - sends a message via the telegram bot referenced by TELEGRAM_KEY
-func SendTelegramMessage(message string) {
+// Send - sends a message via the telegram bot referenced by TELEGRAM_KEY
+func Send(message string) {
 	bot, err := tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_KEY"))
 	if err != nil {
 		fmt.Println(err.Error())
+		return
 	}
 
 	if bot.Self.UserName == "" {

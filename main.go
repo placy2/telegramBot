@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 
-	"github.com/placy2/telegramBot/tasks"
+	"github.com/placy2/telegramBot/dispatch/config"
+	"github.com/placy2/telegramBot/dispatch/tasks"
 
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func main() {
@@ -15,6 +17,12 @@ func main() {
 		log.Panic(err)
 	}
 
+	cfg, err := config.Load("dispatch/config/config.json")
+	if err != nil {
+		log.Fatalf("loading config: %v", err)
+	}
+	ctx := context.Background()
+
 	bot.Debug = true
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
@@ -22,7 +30,7 @@ func main() {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
-	updates, err := bot.GetUpdatesChan(u)
+	updates := bot.GetUpdatesChan(u)
 
 	for update := range updates {
 		if update.Message == nil {
@@ -41,7 +49,8 @@ func main() {
 			case "secretMessage":
 				msg.Text = "Either Parker trusts you or you're code savvy (;"
 			case "hype":
-				tasks.SendHypePlays()
+				msg.Text = "Looking for hype plays..."
+				tasks.SendHypePlays(ctx, cfg)
 			default:
 				msg.Text = "I don't know that command"
 			}
