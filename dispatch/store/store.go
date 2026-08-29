@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"log"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -12,9 +13,10 @@ var db *gorm.DB
 
 // Init - Initializes database and returns handler
 func Init() {
-	db, err := gorm.Open(sqlite.Open("telegramBot.db"), &gorm.Config{})
+	var err error
+	db, err = gorm.Open(sqlite.Open("telegramBot.db"), &gorm.Config{})
 	if err != nil {
-		panic("failed to connect to database")
+		log.Fatalf("failed to connect to database: %v", err)
 	}
 
 	db.AutoMigrate(&RedditPost{})
@@ -31,6 +33,9 @@ func Exists(PostID string) bool {
 			return false
 		}
 
+		// Deliberate fail-open: an unexpected DB error is treated as "already
+		// seen" rather than "not seen", so a flaky DB can't cause duplicate
+		// sends — the tradeoff is a missed headline instead.
 		fmt.Println(result.Error.Error())
 	}
 	return true

@@ -22,7 +22,11 @@ func Send(message string) {
 		return
 	}
 
-	chatID, _ := strconv.ParseInt(os.Getenv("TELEGRAM_OWNER_CHATID"), 10, 64)
+	chatID, err := strconv.ParseInt(os.Getenv("TELEGRAM_OWNER_CHATID"), 10, 64)
+	if err != nil {
+		fmt.Println("invalid TELEGRAM_OWNER_CHATID:", err)
+		return
+	}
 	log.Printf("Going to send %s to chatter ID %d", message, chatID)
 	msg := tgbotapi.NewMessage(chatID, message)
 	bot.Send(msg)

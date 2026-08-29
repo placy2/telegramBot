@@ -6,15 +6,25 @@ import (
 	"os"
 
 	"github.com/placy2/telegramBot/dispatch/config"
+	"github.com/placy2/telegramBot/dispatch/store"
 	"github.com/placy2/telegramBot/dispatch/tasks"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func main() {
+	if os.Getenv("TELEGRAM_KEY") == "" {
+		log.Fatal("TELEGRAM_KEY environment variable is not set")
+	}
+	if os.Getenv("TELEGRAM_OWNER_CHATID") == "" {
+		log.Fatal("TELEGRAM_OWNER_CHATID environment variable is not set")
+	}
+
+	store.Init()
+
 	bot, err := tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_KEY"))
 	if err != nil {
-		log.Panic(err)
+		log.Fatalf("connecting to Telegram: %v", err)
 	}
 
 	cfg, err := config.Load("dispatch/config/config.json")

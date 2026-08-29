@@ -18,3 +18,13 @@
 # Local or temporary files
 *.db
 .vscode/
+/token.txt
+logs/*
+
+
+# Built bot binary
+/bot
+/telegramBot
+
+# dotenv
+.env.local
