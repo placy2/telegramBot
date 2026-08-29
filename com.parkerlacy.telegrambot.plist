@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Must match the filename exactly (minus .plist) -->
+    <key>Label</key>
+    <string>com.parkerlacy.telegrambot</string>
+
+    <!-- What to run. Full paths only — no $PATH here. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/parkerlacy/coding/telegramBot/run.sh</string>
+    </array>
+
+    <!-- cwd for the process — matters if your code reads relative paths
+         (e.g. this bot's dispatch/config/config.json) -->
+    <key>WorkingDirectory</key>
+    <string>/Users/parkerlacy/coding/telegramBot</string>
+
+    <!-- Start it the moment this agent is loaded... -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- ...and restart it if it dies (with nonzero exit code) -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Don't restart-loop faster than once every N seconds -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <!-- stdout/stderr, since there's no terminal attached -->
+    <key>StandardOutPath</key>
+    <string>/Users/parkerlacy/coding/telegramBot/logs/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/parkerlacy/coding/telegramBot/logs/stderr.log</string>
+</dict> 
+</plist>

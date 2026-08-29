@@ -17,4 +17,17 @@
 
 # Local or temporary files
 *.db
+*.db-shm
+*.db-wal
 .vscode/
+.obsidian/
+logs/*
+!logs/.gitkeep
+
+
+# Built bot binary
+/bot
+/telegramBot
+
+# dotenv
+.env.local
