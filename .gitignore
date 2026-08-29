@@ -17,9 +17,12 @@
 
 # Local or temporary files
 *.db
+*.db-shm
+*.db-wal
 .vscode/
 /token.txt
 logs/*
+!logs/.gitkeep
 
 
 # Built bot binary

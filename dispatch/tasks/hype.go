@@ -1,43 +1,63 @@
 package tasks
 
 import (
-	"context"
 	"fmt"
 	"time"
 
-	"github.com/placy2/telegramBot/dispatch/config"
-	"github.com/placy2/telegramBot/dispatch/reddit"
+	"github.com/placy2/telegramBot/dispatch/poller"
 	"github.com/placy2/telegramBot/dispatch/store"
 	"github.com/placy2/telegramBot/dispatch/telegram"
 )
 
-// SendHypePlays finds recent gaming clips with "hype" in the title.
-func SendHypePlays(ctx context.Context, cfg *config.Config) {
-	var sent int
-	for _, sub := range cfg.Subreddits {
-		entries, err := reddit.FetchSubreddit(ctx, sub, cfg.NumPosts)
-		if err != nil {
-			fmt.Println("fetch error:", err)
-			continue
-		}
+// maxClipsPerCommand caps how many clips a single /hype reply delivers, so
+// a backlog built up while the bot was offline can't dump hundreds of
+// messages at once.
+const maxClipsPerCommand = 20
 
-		for _, e := range entries {
-			if store.Exists(e.ID) {
-				continue
-			}
-			store.Create(e.ID)
+// staleAfter is how long since poller's last successful fetch before
+// SendHypePlays treats the feed as broken rather than just quiet.
+const staleAfter = 10 * time.Minute
 
-			if !matchesAny(e.Title, cfg.Keywords) {
-				continue
-			}
-			telegram.Send(fmt.Sprintf("I found this hype clip for you:\n\n%s\n\n%s",
-				e.Title, reddit.OldLink(e.Link.Href)))
-			sent++
-		}
-		time.Sleep(time.Second)
+// SendHypePlays delivers any gaming clips the background poller has found
+// matching a configured keyword. It never touches the network itself —
+// dispatch/poller does that on its own schedule to respect Reddit's
+// rate limit — so this returns immediately.
+func SendHypePlays() {
+	clips, err := store.UnsentClips(maxClipsPerCommand)
+	if err != nil {
+		fmt.Println("store error:", err)
+		telegram.Send("Something went wrong looking up hype plays. Check the logs.")
+		return
 	}
 
-	if sent == 0 {
+	if len(clips) == 0 {
+		reportQuiet()
+		return
+	}
+
+	var sentIDs []uint
+	for _, c := range clips {
+		telegram.Send(fmt.Sprintf("I found this hype clip for you:\n\n%s\n\n%s", c.Title, c.URL))
+		sentIDs = append(sentIDs, c.ID)
+	}
+
+	if err := store.MarkSent(sentIDs); err != nil {
+		fmt.Println("store error marking sent:", err)
+	}
+}
+
+// reportQuiet distinguishes "the feed is genuinely quiet" from "the poller
+// can't reach Reddit" using poller's health snapshot, instead of reporting
+// every empty result as "not very hype at all" regardless of cause.
+func reportQuiet() {
+	status := poller.Snapshot()
+
+	switch {
+	case status.LastErr != nil:
+		telegram.Send(fmt.Sprintf("Couldn't check Reddit for hype plays: %v", status.LastErr))
+	case status.LastSuccess.IsZero() || time.Since(status.LastSuccess) > staleAfter:
+		telegram.Send("Haven't been able to reach Reddit recently — check back in a bit.")
+	default:
 		telegram.Send("No hype plays were found recently. Not very hype at all.")
 	}
 }

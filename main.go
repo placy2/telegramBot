@@ -4,8 +4,12 @@ import (
 	"context"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/placy2/telegramBot/dispatch/config"
+	"github.com/placy2/telegramBot/dispatch/poller"
 	"github.com/placy2/telegramBot/dispatch/store"
 	"github.com/placy2/telegramBot/dispatch/tasks"
 
@@ -31,16 +35,40 @@ func main() {
 	if err != nil {
 		log.Fatalf("loading config: %v", err)
 	}
-	ctx := context.Background()
 
-	bot.Debug = true
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	bot.Debug = os.Getenv("BOT_DEBUG") != ""
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
+
+	// The poller owns all Reddit I/O, ticking on its own schedule to stay
+	// within Reddit's anonymous rate budget (~1 request/min) — see
+	// dispatch/poller. Commands like /hype just read what it has found.
+	go poller.Run(ctx, cfg)
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
 	updates := bot.GetUpdatesChan(u)
+
+	go func() {
+		<-ctx.Done()
+		log.Println("shutting down...")
+		bot.StopReceivingUpdates()
+
+		// tgbotapi's update loop only checks for shutdown between
+		// long-poll requests, each of which can block up to u.Timeout
+		// (60s) waiting on Telegram — a library limitation, not something
+		// fixable from here. Rather than leaving Ctrl-C looking dead for
+		// up to a minute, force the exit if the natural shutdown doesn't
+		// land quickly; there's no buffered work here that needs a
+		// longer graceful drain.
+		time.Sleep(3 * time.Second)
+		log.Println("forcing exit — Telegram long-poll didn't return in time")
+		os.Exit(0)
+	}()
 
 	for update := range updates {
 		if update.Message == nil {
@@ -51,6 +79,7 @@ func main() {
 
 		if update.Message.IsCommand() {
 			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+			var work func()
 			switch update.Message.Command() {
 			case "help":
 				msg.Text = "/hype - sends hype plays"
@@ -60,11 +89,18 @@ func main() {
 				msg.Text = "Either Parker trusts you or you're code savvy (;"
 			case "hype":
 				msg.Text = "Looking for hype plays..."
-				tasks.SendHypePlays(ctx, cfg)
+				work = tasks.SendHypePlays
 			default:
 				msg.Text = "I don't know that command"
 			}
-			bot.Send(msg)
+			// Send the acknowledgment before doing any work, so it always
+			// arrives first regardless of how long the command takes.
+			if _, err := bot.Send(msg); err != nil {
+				log.Printf("sending reply: %v", err)
+			}
+			if work != nil {
+				work()
+			}
 		}
 	}
 }

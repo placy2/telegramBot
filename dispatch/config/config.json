@@ -1,5 +1,6 @@
 {
   "subreddits": ["VALORANT", "GlobalOffensive", "RocketLeague", "SuperSmashBros"],
   "keywords": ["hype"],
-  "numPosts": 15
+  "numPosts": 15,
+  "pollSeconds": 75
 }
