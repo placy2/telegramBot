@@ -13,7 +13,7 @@ const (
 	defaultPollSeconds = 75
 
 	// minPollSeconds is a hard floor: Reddit's measured anonymous RSS
-	// budget is ~1 request/60s/IP (see dispatch/docs/modernization-runbook.md),
+	// budget is ~1 request/60s/IP (see dispatch/poller's package comment),
 	// so anything faster reintroduces the 429s this was built to fix.
 	minPollSeconds = 60
 )

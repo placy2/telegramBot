@@ -9,7 +9,7 @@ Reddit content is fetched via each subreddit's public `new.rss` feed — no Redd
 
 Note this RSS change is largely because Reddit has effectively completely blocked hobby bot access, even via OAuth.
 
-**Reddit's anonymous RSS budget is roughly 1 request per 60 seconds, per IP, shared across all feeds** (measured directly — see `dispatch/docs/modernization-runbook.md`). A command can't fetch several subreddits fast enough to reply in real time, so a background poller (`dispatch/poller`) fetches one subreddit per tick on its own schedule and stores keyword matches; `/hype` just reads what it has already found and replies instantly. `pollSeconds` in `config.json` controls the tick interval (default 75s, floored at 60s so it can't be tuned back into 429s).
+**Reddit's anonymous RSS budget is roughly 1 request per 60 seconds, per IP, shared across all feeds** (measured directly). A command can't fetch several subreddits fast enough to reply in real time, so a background poller (`dispatch/poller`) fetches one subreddit per tick on its own schedule and stores keyword matches; `/hype` and `/soccer` just read what's already been found and reply instantly. `pollSeconds` in `config.json` controls the tick interval (default 75s, floored at 60s so it can't be tuned back into 429s).
 
 ## Running the bot
 
@@ -70,12 +70,12 @@ This will run the bot in command mode. You can then simply send `/start` to `Agg
 
 - `/start` — greets you and points at `/help`
 - `/help` — lists available commands
-- `/hype` — DMs you any recent post the background poller has found matching a configured keyword, from the subreddits configured in `config.json`
+- `/hype` — DMs you any recent gaming post the background poller has found matching a configured keyword, from the subreddits configured in `config.json`
+- `/soccer` — DMs you any recent post the poller has found mentioning one of the configured teams (by name or alias), from the soccer subreddits in `config.json`
 
 ## Documentation
 
-- [`dispatch/docs/modernization-runbook.md`](dispatch/docs/modernization-runbook.md) — the staged cleanup/modernization pass this repo is currently partway through (dependency upgrades, the Reddit RSS migration, correctness fixes, package layout).
-- [`dispatch/docs/daily-soccer-digest.md`](dispatch/docs/daily-soccer-digest.md) — implementation guide for an in-progress `/digest` command (not yet built).
+Architecture, package layout, and non-obvious behaviors are documented in [`CLAUDE.md`](CLAUDE.md) rather than a separate design doc — the modernization pass it describes is complete, and the planning docs that tracked it in progress have been removed now that the work landed.
 
 ### Goal/Updates
 
@@ -83,4 +83,4 @@ This will run the bot in command mode. You can then simply send `/start` to `Agg
 
 11/2: Working on abstracted bot command, something like `/getposts 10 subreddit(s) searchTerm(s)` to allow for basic title searching in a specific subreddit. Ideally, it will take 1 or more arguments for subreddit and 0 or more arguments for searchTerms, although multi-term handling will be decided later.
 
-2026: Modernization pass underway — moved off the abandoned `geddit` library (Reddit's API lockdown broke it) onto unauthenticated RSS feeds, bumped dependencies, and reorganized the codebase under `dispatch/`. See the runbook linked above for the full plan and current status.
+2026: v2 — moved off the abandoned `geddit` library (Reddit's API lockdown broke it) onto unauthenticated RSS feeds, bumped dependencies, reorganized the codebase under `dispatch/`, and added a second feed/command (`/soccer`) alongside the original gaming one (`/hype`).

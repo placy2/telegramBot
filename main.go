@@ -82,7 +82,7 @@ func main() {
 			var work func()
 			switch update.Message.Command() {
 			case "help":
-				msg.Text = "/hype - sends hype plays"
+				msg.Text = "/hype - sends hype plays\n/soccer - sends soccer news for configured teams"
 			case "start":
 				msg.Text = "type /help for available commands."
 			case "secretMessage":

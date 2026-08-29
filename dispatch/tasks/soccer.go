@@ -7,7 +7,9 @@ import (
 	"github.com/placy2/telegramBot/dispatch/telegram"
 )
 
-// SoccerNewsDigest is a placeholder exported function for the soccer news digest task.
+// SoccerNewsDigest delivers any soccer news the background poller has found
+// mentioning a configured team. Like SendHypePlays, it never touches the
+// network itself — dispatch/poller does that on its own schedule.
 func SoccerNewsDigest() {
 	posts, err := store.UnsentPosts("soccer", 10)
 	if err != nil {

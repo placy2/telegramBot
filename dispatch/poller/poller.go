@@ -1,10 +1,10 @@
 // Package poller owns all outbound Reddit traffic. Reddit's anonymous RSS
 // budget is one request per 60s per IP (measured directly against
-// r/GlobalOffensive/new.rss on 2026-08-29 — see
-// dispatch/docs/modernization-runbook.md), which is far too slow to serve
-// inside a single /hype command across several subreddits. Instead, Run
-// ticks in the background, fetching one subreddit per tick and persisting
-// keyword matches as store.FetchedPost rows; /hype then just reads the store.
+// r/GlobalOffensive/new.rss on 2026-08-29), which is far too slow to serve
+// inside a single command across several subreddits. Instead, Run ticks in
+// the background, fetching one subreddit per tick across every configured
+// feed and persisting keyword matches as store.FetchedPost rows; commands
+// like /hype and /soccer then just read the store.
 package poller
 
 import (

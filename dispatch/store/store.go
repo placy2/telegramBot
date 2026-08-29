@@ -39,7 +39,7 @@ func SavePost(c *FetchedPost) error {
 
 // UnsentPosts returns up to limit not-yet-delivered posts for the given
 // feed, newest first — scoped to one feed so e.g. /hype only ever sees
-// gaming posts, not soccer ones the poller saved for /digest.
+// gaming posts, not soccer ones the poller saved for /soccer.
 func UnsentPosts(feed string, limit int) ([]FetchedPost, error) {
 	var posts []FetchedPost
 	result := db.Where("feed = ? AND sent_at IS NULL", feed).

@@ -14,8 +14,8 @@ import (
 
 // redditUserAgent follows Reddit's documented format for identifying a
 // client: <platform>:<app ID>:<version> (by /u/<username>). Non-conforming
-// UAs are throttled harder — see dispatch/docs/modernization-runbook.md.
-const redditUserAgent = "go:telegramBot:1.0 (by /u/placy2)"
+// UAs are throttled harder.
+const redditUserAgent = "go:telegramBot:2.0 (by /u/placy2)"
 
 // client has an explicit timeout, unlike http.DefaultClient (zero value —
 // no timeout at all). Paired with a cancellable context, a hung Reddit
