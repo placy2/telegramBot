@@ -31,10 +31,12 @@ func Init() {
 
 // SavePost inserts a FetchedPost, silently doing nothing if PostID already
 // exists — this is how re-fetching the same subreddit avoids duplicates
-// without a separate Exists check.
-func SavePost(c *FetchedPost) error {
+// without a separate Exists check. The returned bool reports whether a row
+// was actually inserted (false means the PostID was already present, so a
+// nil error alone can't tell a caller that apart from a fresh insert).
+func SavePost(c *FetchedPost) (bool, error) {
 	result := db.Clauses(clause.OnConflict{DoNothing: true}).Create(c)
-	return result.Error
+	return result.RowsAffected > 0, result.Error
 }
 
 // UnsentPosts returns up to limit not-yet-delivered posts for the given

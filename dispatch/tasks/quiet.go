@@ -17,15 +17,15 @@ const staleAfter = 10 * time.Minute
 // instead of always reporting an empty result the same way regardless of
 // cause. label names the feed in the error message (e.g. "hype plays");
 // quietMsg is sent when the feed is healthy but has nothing new.
-func reportQuiet(feed, label, quietMsg string) {
+func reportQuiet(chatID int64, feed, label, quietMsg string) {
 	status := poller.Snapshot(feed)
 
 	switch {
 	case status.LastErr != nil:
-		telegram.Send(fmt.Sprintf("Couldn't check Reddit for %s: %v", label, status.LastErr))
+		telegram.Send(chatID, fmt.Sprintf("Couldn't check Reddit for %s: %v", label, status.LastErr))
 	case status.LastSuccess.IsZero() || time.Since(status.LastSuccess) > staleAfter:
-		telegram.Send("Haven't been able to reach Reddit recently — check back in a bit.")
+		telegram.Send(chatID, "Haven't been able to reach Reddit recently — check back in a bit.")
 	default:
-		telegram.Send(quietMsg)
+		telegram.Send(chatID, quietMsg)
 	}
 }

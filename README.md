@@ -14,10 +14,9 @@ Note this RSS change is largely because Reddit has effectively completely blocke
 ## Running the bot
 
 ### Manual method (no run script, .env defined, or launchd)
-This bot pulls secret/user-specific information from 2 OS environment variables. For example, someone on Linux systems using some variant of bash will need to define:
+This bot pulls secret/user-specific information from 1 OS environment variable. For example, someone on Linux systems using some variant of bash will need to define:
 
 ```bash
-$ $TELEGRAM_OWNER_CHATID #The numeric chatID for a specific user/group chat. See telegram-bot-api README.
 $ $TELEGRAM_KEY #The secret key for the bot being used,
                 #obtained from the BotFather upon creation of a new Telegram bot.
 ```
@@ -40,7 +39,6 @@ $ ./bot
 
 ```bash
 TELEGRAM_KEY=123456:your-bot-token-here
-TELEGRAM_OWNER_CHATID=123456789
 ```
 
 `run.sh` uses `set -a` / `set +a` around the source so every variable defined in the file gets exported automatically — no `export` keyword needed in `.env.local` itself.
@@ -70,8 +68,8 @@ This will run the bot in command mode. You can then simply send `/start` to `Agg
 
 - `/start` — greets you and points at `/help`
 - `/help` — lists available commands
-- `/hype` — DMs you any recent gaming post the background poller has found matching a configured keyword, from the subreddits configured in `config.json`
-- `/soccer` — DMs you any recent post the poller has found mentioning one of the configured teams (by name or alias), from the soccer subreddits in `config.json`
+- `/hype` — replies in the chat it was sent from with any recent gaming post the background poller has found matching a configured keyword, from the subreddits configured in `config.json`
+- `/soccer` — replies in the chat it was sent from with any recent post the poller has found mentioning one of the configured teams (by name or alias), from the soccer subreddits in `config.json`
 
 ## Documentation
 

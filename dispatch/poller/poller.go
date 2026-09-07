@@ -178,8 +178,13 @@ func saveMatches(feedName, sub string, entries []reddit.Entry, match func(string
 			URL:       reddit.OldLink(e.Link.Href),
 			Published: e.Published,
 		}
-		if err := store.SavePost(&post); err != nil {
-			log.Printf("poller: save post %s: %v", e.ID, err)
+		inserted, err := store.SavePost(&post)
+		if err != nil {
+			log.Printf("poller: save post error %s: %v", e.ID, err)
+			continue
+		}
+		if inserted {
+			log.Printf("poller: saved post %s from r/%s for feed %s", e.ID, sub, feedName)
 		}
 	}
 }

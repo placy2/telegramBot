@@ -20,9 +20,6 @@ func main() {
 	if os.Getenv("TELEGRAM_KEY") == "" {
 		log.Fatal("TELEGRAM_KEY environment variable is not set")
 	}
-	if os.Getenv("TELEGRAM_OWNER_CHATID") == "" {
-		log.Fatal("TELEGRAM_OWNER_CHATID environment variable is not set")
-	}
 
 	store.Init()
 
@@ -79,7 +76,7 @@ func main() {
 
 		if update.Message.IsCommand() {
 			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
-			var work func()
+			var work func(chatID int64)
 			switch update.Message.Command() {
 			case "help":
 				msg.Text = "/hype - sends hype plays\n/soccer - sends soccer news for configured teams"
@@ -102,7 +99,7 @@ func main() {
 				log.Printf("sending reply: %v", err)
 			}
 			if work != nil {
-				work()
+				work(update.Message.Chat.ID)
 			}
 		}
 	}
