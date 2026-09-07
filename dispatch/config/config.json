@@ -1,12 +1,12 @@
 {
-  "numPosts": 15,
+  "numPosts": 100,
   "pollSeconds": 75,
   "gaming": {
     "subreddits": ["VALORANT", "GlobalOffensive", "RocketLeague", "SuperSmashBros"],
     "keywords": ["hype"]
   },
   "soccer" : {
-    "subreddits": ["soccer", "mls"],
+    "subreddits": ["soccer", "mls", "ussoccer", "uswnt", "nwsl", "womenssoccer"],
     "teams": [
       {
         "name": "Colorado Rapids",
@@ -18,7 +18,11 @@
       },
       {
         "name": "Eintracht Frankfurt",
-        "aliases": ["Frankfurt", "Eintracht", "SGE "]
+        "aliases": ["Frankfurt", "SGE "]
+      },
+      {
+        "name": "Denver Summit FC",
+        "aliases": ["DEN ", "Summit", "Denver", "Summit FC", "Denver Summit"]
       }
     ],
     "lookbackHours": 24

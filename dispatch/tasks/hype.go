@@ -16,22 +16,22 @@ const maxClipsPerCommand = 20
 // matching a configured keyword. It never touches the network itself —
 // dispatch/poller does that on its own schedule to respect Reddit's
 // rate limit — so this returns immediately.
-func SendHypePlays() {
+func SendHypePlays(chatID int64) {
 	clips, err := store.UnsentPosts("gaming", maxClipsPerCommand)
 	if err != nil {
 		fmt.Println("store error:", err)
-		telegram.Send("Something went wrong looking up hype plays. Check the logs.")
+		telegram.Send(chatID, "Something went wrong looking up hype plays. Check the logs.")
 		return
 	}
 
 	if len(clips) == 0 {
-		reportQuiet("gaming", "hype plays", "No hype plays were found recently. Not very hype at all.")
+		reportQuiet(chatID, "gaming", "hype plays", "No hype plays were found recently. Not very hype at all.")
 		return
 	}
 
 	var sentIDs []uint
 	for _, c := range clips {
-		telegram.Send(fmt.Sprintf("I found this hype clip for you:\n\n%s\n\n%s", c.Title, c.URL))
+		telegram.Send(chatID, fmt.Sprintf("I found this hype clip for you:\n\n%s\n\n%s", c.Title, c.URL))
 		sentIDs = append(sentIDs, c.ID)
 	}
 

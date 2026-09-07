@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// Send - sends a message via the telegram bot referenced by TELEGRAM_KEY
-func Send(message string) {
+// Send - sends a message to chatID via the telegram bot referenced by TELEGRAM_KEY
+func Send(chatID int64, message string) {
 	bot, err := tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_KEY"))
 	if err != nil {
 		fmt.Println(err.Error())
@@ -22,11 +21,6 @@ func Send(message string) {
 		return
 	}
 
-	chatID, err := strconv.ParseInt(os.Getenv("TELEGRAM_OWNER_CHATID"), 10, 64)
-	if err != nil {
-		fmt.Println("invalid TELEGRAM_OWNER_CHATID:", err)
-		return
-	}
 	log.Printf("Going to send %s to chatter ID %d", message, chatID)
 	msg := tgbotapi.NewMessage(chatID, message)
 	bot.Send(msg)
